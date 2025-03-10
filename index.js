@@ -17,9 +17,9 @@ if (shouldAskForTime()) {
 }
 
 function shouldAskForTime() {
-  // Check if current hour if between 20 and 23
   var now = new Date();
   var hour = now.getHours();
+  // Check if it is time to ask for time (aka evening)
   var correctHour = hour >= 20 && hour <= 23;
   // var correctHour = true;
   if (!correctHour && !IS_DEBUG) {
@@ -112,7 +112,7 @@ function notifyOfTime() {
   // Read file
   var timeValue = fs.readFileSync(timeControlPath, "utf8");
 
-    var script = `tell application "System Events" to display dialog "Your time is out, as you set it to ${timeValue}" with title "Time Control" buttons "OK" with icon 2`;
+    var script = `tell application "System Events" to display dialog "Your time is out, as you set it to ${timeValue}" with title "Time Control" buttons "OK" with icon 2 giving up after 45`;
     run("osascript", ["-e", script], function (code) {
       console.log('Notified user', code);
     });
