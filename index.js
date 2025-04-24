@@ -16,14 +16,19 @@ var timeControlPath = path.join(os.homedir(), 'Documents', 'time_control.txt');
 // }, 1000)
 
 var isLocked = isScreenLocked();
-console.log("[" + getCurrentDateTime() + "] Starting time control. Screen lock state: " + isLocked);
+console.log("[" + getCurrentDateTime() + "] Starting time control. Screen lock state: " + isLocked + "; Delta: " + getMinutesDelta());
 
 // Only ask for time or notify of time when the screen is unlocked
 if (isLocked === false) {
   if (shouldAskForTime()) {
     askForTime();
-  } else if (shouldNotifyOfTime()) {
-    notifyOfTime();
+  } else {
+    var minutesPastDueTime = getMinutesDelta();
+    if (minutesPastDueTime >= 6) {
+      forceAct();
+    } else if (minutesPastDueTime >= 0) {
+      notifyOfTime();
+    }
   }
 }  
 
@@ -93,7 +98,9 @@ function askForTime() {
   }
 }
 
-function shouldNotifyOfTime() {
+// Returns a positive number of how many are we over the "due" time.
+// If we're not yet due, then a negative number will be returned
+function getMinutesDelta() {
   // Get last modified date of file
   var stats = fs.statSync(timeControlPath);
   var mtime = new Date(stats.mtime);
@@ -111,12 +118,10 @@ function shouldNotifyOfTime() {
       var now = new Date();
       var currentHour = now.getHours();
       var currentMinutes = now.getMinutes();
-      return (
-        currentHour > hour || (currentHour === hour && currentMinutes >= minutes)
-      );
+      return (currentHour*60+currentMinutes) - (hour*60+minutes);
     }
   } else {
-    return false;
+    return -999;
   }
 }
 
@@ -125,7 +130,7 @@ function notifyOfTime() {
   var timeValue = fs.readFileSync(timeControlPath, "utf8");
 
     var script = `tell application "System Events" to display dialog "Your time is out, as you set it to ${timeValue}" with title "Time Control" buttons "OK" with icon 2 giving up after 45`;
-    run("osascript", ["-e", script], function (code) {
+    runCommand("osascript", ["-e", script], function (code) {
       console.log('Notified user', code);
 
       var scriptLock = `
@@ -135,45 +140,33 @@ tell application "System Events"
 end tell
       `;
       var isLocked = isScreenLocked();
-      if (isLocked === true) {
+      if (isLocked === false) {
         console.log('Trying to lock the screen', code);  
-        run("osascript", ["-e", scriptLock], function (code) {
+        runCommand("osascript", ["-e", scriptLock], function (code) {
           console.log('Locked the screen', code);
         });
-      } else if (isLocked === false) {
+      } else if (isLocked === true) {
         console.log('Screen is already locked');
       } else {
         console.log('Unknown screen lock state. Not locking');
       }
     });
-
-    function run(bin, args, cb) {
-      var child = spawn(bin, args, {
-        detached: true,
-      });
-
-      child.on("exit", function (code) {
-        cb && cb(code);
-      });
-    }
 }
 
-// function isScreenLockedCb(cb) {
-//   // https://www.reddit.com/r/applescript/comments/det3go/check_if_mac_is_awake_before_unlocking_with_ssh/
-//   // Script that returns 0 when screen is locked 
-//   var screenLockScript = `[ "$(/usr/libexec/PlistBuddy -c "print :IOConsoleUsers:0:CGSSessionScreenIsLocked" /dev/stdin 2>/dev/null <<< "$(ioreg -n Root -d1 -a)")" = "true" ] && echo 0 || echo 1;`;
-//   exec(screenLockScript, function(err, stdout, stderr) {
-//     if (err) {
-//       return null;
-//     }
-//     // console.log(stdout);
-//     if (stdout === '0') {
-//       return true;
-//     } else {
-//       return false;
-//     }
-//   });
-// }
+function forceAct() {
+  var isLocked = isScreenLocked();
+  if (isLocked === false) {
+    var scriptLock = `
+activate application "SystemUIServer"
+tell application "System Events"
+    tell process "SystemUIServer" to keystroke "q" using {command down, control down}
+end tell
+      `;
+    runCommand("osascript", ["-e", scriptLock], function (code) {
+      console.log('Force-locked the screen', code);
+    });
+  }
+}
 
 function isScreenLocked(cb) {
   // https://www.reddit.com/r/applescript/comments/det3go/check_if_mac_is_awake_before_unlocking_with_ssh/
@@ -195,8 +188,6 @@ function isScreenLocked(cb) {
   return isLocked;
 }
 
-
-
 function getCurrentDateTime() {
   var currentdate = new Date();
   return (
@@ -212,4 +203,14 @@ function getCurrentDateTime() {
     ":" +
     currentdate.getSeconds()
   );
+}
+
+function runCommand(bin, args, cb) {
+  var child = spawn(bin, args, {
+    detached: true,
+  });
+
+  child.on("exit", function (code) {
+    cb && cb(code);
+  });
 }
